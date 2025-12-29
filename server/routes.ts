@@ -1,4 +1,3 @@
-
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
@@ -32,29 +31,34 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   // === AUTH SETUP ===
-  app.use(session({
-    secret: process.env.SESSION_SECRET || "dev-secret",
-    resave: false,
-    saveUninitialized: false,
-    cookie: { secure: process.env.NODE_ENV === "production" }
-  }));
+  app.use(
+    session({
+      secret: process.env.SESSION_SECRET || "dev-secret",
+      resave: false,
+      saveUninitialized: false,
+      cookie: { secure: process.env.NODE_ENV === "production" },
+    })
+  );
 
   app.use(passport.initialize());
   app.use(passport.session());
 
-  passport.use(new LocalStrategy(async (username, password, done) => {
-    try {
-      const user = await storage.getUserByUsername(username);
-      if (!user) return done(null, false, { message: "Incorrect username." });
-      
-      const isValid = await comparePassword(user.password, password);
-      if (!isValid) return done(null, false, { message: "Incorrect password." });
-      
-      return done(null, user);
-    } catch (err) {
-      return done(err);
-    }
-  }));
+  passport.use(
+    new LocalStrategy(async (username, password, done) => {
+      try {
+        const user = await storage.getUserByUsername(username);
+        if (!user) return done(null, false, { message: "Incorrect username." });
+
+        const isValid = await comparePassword(user.password, password);
+        if (!isValid)
+          return done(null, false, { message: "Incorrect password." });
+
+        return done(null, user);
+      } catch (err) {
+        return done(err);
+      }
+    })
+  );
 
   passport.serializeUser((user: any, done) => done(null, user.id));
   passport.deserializeUser(async (id: number, done) => {
@@ -69,15 +73,25 @@ export async function registerRoutes(
   // === SEED DATA ===
   async function seed() {
     const existingProducts = await storage.getProducts();
+    const existingUsers = await storage.getProducts(); // Check if already seeded
     if (existingProducts.length === 0) {
       console.log("Seeding database...");
-      
-      // Seed Admin
-      const hashedPassword = await hashPassword("admin123");
+
+      // Seed Manager (system admin - for you to create companies)
+      const managerPassword = await hashPassword("manager123");
+      await storage.createUser({
+        username: "manager",
+        password: managerPassword,
+        role: "manager",
+      });
+
+      // Seed Demo Admin Company
+      const adminPassword = await hashPassword("admin123");
       await storage.createUser({
         username: "admin",
-        password: hashedPassword,
-        role: "admin"
+        password: adminPassword,
+        role: "admin",
+        companyName: "Demo Store",
       });
 
       // Seed Products
@@ -88,7 +102,8 @@ export async function registerRoutes(
         stock: 50,
         category: "Food",
         barcode: "123456789",
-        imageUrl: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3"
+        imageUrl:
+          "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
       });
       await storage.createProduct({
         name: "Fries",
@@ -97,21 +112,23 @@ export async function registerRoutes(
         stock: 100,
         category: "Sides",
         barcode: "987654321",
-        imageUrl: "https://images.unsplash.com/photo-1630384060421-cb20d0e0649d?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3"
+        imageUrl:
+          "https://images.unsplash.com/photo-1630384060421-cb20d0e0649d?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
       });
-       await storage.createProduct({
+      await storage.createProduct({
         name: "Cola",
         description: "Cold refreshing cola.",
         price: "6.00",
         stock: 200,
         category: "Drinks",
         barcode: "11223344",
-        imageUrl: "https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3"
+        imageUrl:
+          "https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
       });
       console.log("Seeding complete.");
     }
   }
-  
+
   // Run seed
   seed();
 
@@ -156,7 +173,7 @@ export async function registerRoutes(
       res.status(400).json({ message: "Invalid input" });
     }
   });
-  
+
   // -- Orders Routes --
   app.get(api.orders.list.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
@@ -184,8 +201,81 @@ export async function registerRoutes(
   app.patch(api.orders.updateStatus.path, async (req, res) => {
     // Ideally protected, but for "Station" maybe simple access or shared auth
     // For now, let's keep it open or require auth if station is logged in
-    const order = await storage.updateOrderStatus(Number(req.params.id), req.body.status);
+    const order = await storage.updateOrderStatus(
+      Number(req.params.id),
+      req.body.status
+    );
     res.json(order);
+  });
+
+  // -- User Management Routes --
+  app.get(api.users.list.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const currentUser = req.user as any;
+    // Only manager can list users
+    if (currentUser.role !== "manager") return res.sendStatus(403);
+    const adminUsers = await storage.getAdminUsers();
+    res.json(adminUsers);
+  });
+
+  app.post(api.users.create.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const currentUser = req.user as any;
+    // Only manager can create users
+    if (currentUser.role !== "manager") return res.sendStatus(403);
+    try {
+      const input = api.users.create.input.parse(req.body);
+      const hashedPassword = await hashPassword(input.password);
+      const user = await storage.createUser({
+        username: input.username,
+        password: hashedPassword,
+        role: "admin",
+        companyName: input.companyName,
+        cnpj: input.cnpj,
+        email: input.email,
+        phone: input.phone,
+        needsPasswordChange: true,
+      });
+      res.status(201).json(user);
+    } catch (e: any) {
+      if (e.message?.includes("unique constraint")) {
+        return res.status(400).json({ message: "Username already exists" });
+      }
+      res.status(400).json({ message: e.message || "Invalid input" });
+    }
+  });
+
+  app.patch(api.users.update.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const currentUser = req.user as any;
+    if (currentUser.role !== "manager") return res.sendStatus(403);
+    try {
+      const id = Number(req.params.id);
+      const input = api.users.update.input.parse(req.body);
+      const updateData: any = {};
+      if (input.companyName) updateData.companyName = input.companyName;
+      if (input.cnpj) updateData.cnpj = input.cnpj;
+      if (input.email) updateData.email = input.email;
+      if (input.phone) updateData.phone = input.phone;
+      if (input.password)
+        updateData.password = await hashPassword(input.password);
+      if (input.needsPasswordChange !== undefined)
+        updateData.needsPasswordChange = input.needsPasswordChange;
+
+      const user = await storage.updateUser(id, updateData);
+      res.json(user);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message || "Invalid input" });
+    }
+  });
+
+  app.delete(api.users.delete.path, async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const currentUser = req.user as any;
+    if (currentUser.role !== "manager") return res.sendStatus(403);
+    const id = Number(req.params.id);
+    await storage.deleteUser(id);
+    res.sendStatus(200);
   });
 
   return httpServer;

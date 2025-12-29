@@ -1,5 +1,13 @@
-
-import { pgTable, text, serial, integer, boolean, timestamp, decimal, varchar } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  serial,
+  integer,
+  boolean,
+  timestamp,
+  decimal,
+  varchar,
+} from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -10,7 +18,12 @@ export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
-  role: text("role").default("admin").notNull(), // admin, staff
+  role: text("role").default("admin").notNull(), // manager, admin
+  companyName: text("company_name"), // Name of the company (for admin users)
+  cnpj: text("cnpj"), // Company CNPJ
+  email: text("email"),
+  phone: text("phone"),
+  needsPasswordChange: boolean("needs_password_change").default(false), // Force password change on first login
 });
 
 export const products = pgTable("products", {
@@ -36,8 +49,12 @@ export const orders = pgTable("orders", {
 
 export const orderItems = pgTable("order_items", {
   id: serial("id").primaryKey(),
-  orderId: integer("order_id").references(() => orders.id).notNull(),
-  productId: integer("product_id").references(() => products.id).notNull(),
+  orderId: integer("order_id")
+    .references(() => orders.id)
+    .notNull(),
+  productId: integer("product_id")
+    .references(() => products.id)
+    .notNull(),
   quantity: integer("quantity").notNull(),
   priceAtTime: decimal("price_at_time", { precision: 10, scale: 2 }).notNull(),
 });
@@ -62,9 +79,18 @@ export const ordersRelations = relations(orders, ({ many }) => ({
 // === BASE SCHEMAS ===
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });
-export const insertProductSchema = createInsertSchema(products).omit({ id: true });
-export const insertOrderSchema = createInsertSchema(orders).omit({ id: true, createdAt: true, pickupCode: true, status: true });
-export const insertOrderItemSchema = createInsertSchema(orderItems).omit({ id: true });
+export const insertProductSchema = createInsertSchema(products).omit({
+  id: true,
+});
+export const insertOrderSchema = createInsertSchema(orders).omit({
+  id: true,
+  createdAt: true,
+  pickupCode: true,
+  status: true,
+});
+export const insertOrderItemSchema = createInsertSchema(orderItems).omit({
+  id: true,
+});
 
 // === EXPLICIT API CONTRACT TYPES ===
 

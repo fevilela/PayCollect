@@ -51,3 +51,26 @@ export function useLogout() {
     },
   });
 }
+
+export function useCreateUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (credentials: z.infer<typeof api.users.create.input>) => {
+      const res = await fetch(api.users.create.path, {
+        method: api.users.create.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(credentials),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to create user");
+      }
+      return api.users.create.responses[201].parse(await res.json());
+    },
+    onSuccess: () => {
+      // Invalidate any user-related queries if needed
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+    },
+  });
+}

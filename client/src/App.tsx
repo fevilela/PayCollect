@@ -12,6 +12,7 @@ import Checkout from "@/pages/Checkout";
 import Success from "@/pages/Success";
 import Station from "@/pages/Station";
 import Admin from "@/pages/Admin";
+import Manager from "@/pages/Manager";
 
 function Router() {
   return (
@@ -21,6 +22,7 @@ function Router() {
       <Route path="/checkout" component={Checkout} />
       <Route path="/success/:code" component={Success} />
       <Route path="/station" component={Station} />
+      <Route path="/manager" component={Manager} />
       <Route path="/admin" component={Admin} />
       <Route component={NotFound} />
     </Switch>
