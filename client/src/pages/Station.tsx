@@ -10,7 +10,7 @@ export default function Station() {
   const [inputCode, setInputCode] = useState("");
   const [activeCode, setActiveCode] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  
+
   const { data: order, isLoading, error } = useOrderByCode(activeCode);
   const { mutate: updateStatus, isPending } = useUpdateOrderStatus();
   const { toast } = useToast();
@@ -23,7 +23,7 @@ export default function Station() {
 
   const handleComplete = () => {
     if (!order) return;
-    
+
     updateStatus(
       { id: order.id, status: "collected" },
       {
@@ -40,7 +40,7 @@ export default function Station() {
   // Auto-focus input for barcode scanners
   useEffect(() => {
     inputRef.current?.focus();
-    const interval = setInterval(() => inputRef.current?.focus(), 5000);
+    const interval = setInterval(() => inputRef.current?.focus(), 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -74,7 +74,11 @@ export default function Station() {
                   autoComplete="off"
                 />
               </div>
-              <Button type="submit" size="lg" className="h-16 px-8 text-lg bg-slate-900 hover:bg-slate-800">
+              <Button
+                type="submit"
+                size="lg"
+                className="h-16 px-8 text-lg bg-slate-900 hover:bg-slate-800"
+              >
                 Verify
               </Button>
             </form>
@@ -94,31 +98,43 @@ export default function Station() {
             ) : !order ? (
               <div className="flex flex-col items-center justify-center h-full text-red-400 gap-4">
                 <AlertCircle className="w-16 h-16" />
-                <h3 className="text-xl font-bold text-red-600">Order Not Found</h3>
-                <p className="text-slate-500">Code "{activeCode}" does not exist.</p>
-                <Button variant="outline" onClick={() => setActiveCode("")}>Try Again</Button>
+                <h3 className="text-xl font-bold text-red-600">
+                  Order Not Found
+                </h3>
+                <p className="text-slate-500">
+                  Code "{activeCode}" does not exist.
+                </p>
+                <Button variant="outline" onClick={() => setActiveCode("")}>
+                  Try Again
+                </Button>
               </div>
             ) : (
               <div className="animate-enter">
                 <div className="flex justify-between items-start mb-8">
                   <div>
-                    <h2 className="text-3xl font-bold text-slate-900 mb-2">{order.customerName}</h2>
+                    <h2 className="text-3xl font-bold text-slate-900 mb-2">
+                      {order.customerName}
+                    </h2>
                     <div className="flex gap-3">
                       <span className="px-3 py-1 bg-slate-100 rounded-full text-sm font-medium text-slate-600 border border-slate-200">
                         Order #{order.id}
                       </span>
-                      <span className={`px-3 py-1 rounded-full text-sm font-bold border ${
-                        order.status === 'collected' 
-                          ? 'bg-green-100 text-green-700 border-green-200' 
-                          : 'bg-yellow-100 text-yellow-700 border-yellow-200'
-                      }`}>
+                      <span
+                        className={`px-3 py-1 rounded-full text-sm font-bold border ${
+                          order.status === "collected"
+                            ? "bg-green-100 text-green-700 border-green-200"
+                            : "bg-yellow-100 text-yellow-700 border-yellow-200"
+                        }`}
+                      >
                         {order.status.toUpperCase()}
                       </span>
                     </div>
                   </div>
                   <div className="text-right">
                     <p className="text-sm text-slate-500 mb-1">Total Amount</p>
-                    <p className="text-3xl font-bold text-emerald-600">${Number(order.totalAmount).toFixed(2)}</p>
+                    <p className="text-3xl font-bold text-emerald-600">
+                      ${Number(order.totalAmount).toFixed(2)}
+                    </p>
                   </div>
                 </div>
 
@@ -129,13 +145,20 @@ export default function Station() {
                   </h3>
                   <div className="space-y-4">
                     {order.items.map((item: any, i: number) => (
-                      <div key={i} className="flex items-center gap-4 p-3 bg-white rounded-lg border border-slate-200 shadow-sm">
+                      <div
+                        key={i}
+                        className="flex items-center gap-4 p-3 bg-white rounded-lg border border-slate-200 shadow-sm"
+                      >
                         <div className="w-12 h-12 bg-slate-100 rounded-md flex items-center justify-center font-bold text-slate-400">
                           {item.quantity}x
                         </div>
                         <div className="flex-1">
-                          <p className="font-bold text-slate-800">{item.product.name}</p>
-                          <p className="text-sm text-slate-500">{item.product.barcode || "No barcode"}</p>
+                          <p className="font-bold text-slate-800">
+                            {item.product.name}
+                          </p>
+                          <p className="text-sm text-slate-500">
+                            {item.product.barcode || "No barcode"}
+                          </p>
                         </div>
                         <div className="h-6 w-6 rounded-full border-2 border-slate-200" />
                       </div>
@@ -144,9 +167,9 @@ export default function Station() {
                 </div>
 
                 <div className="flex gap-4">
-                  <Button 
-                    variant="outline" 
-                    size="lg" 
+                  <Button
+                    variant="outline"
+                    size="lg"
                     className="flex-1 h-14"
                     onClick={() => {
                       setInputCode("");
@@ -155,14 +178,20 @@ export default function Station() {
                   >
                     Cancel
                   </Button>
-                  <Button 
-                    size="lg" 
+                  <Button
+                    size="lg"
                     className="flex-1 h-14 bg-emerald-600 hover:bg-emerald-700 text-lg font-bold shadow-lg shadow-emerald-200"
                     onClick={handleComplete}
-                    disabled={order.status === 'collected' || isPending}
+                    disabled={order.status === "collected" || isPending}
                   >
-                    {isPending ? <Loader2 className="animate-spin mr-2" /> : <Check className="mr-2" />}
-                    {order.status === 'collected' ? 'Already Collected' : 'Complete Pickup'}
+                    {isPending ? (
+                      <Loader2 className="animate-spin mr-2" />
+                    ) : (
+                      <Check className="mr-2" />
+                    )}
+                    {order.status === "collected"
+                      ? "Already Collected"
+                      : "Complete Pickup"}
                   </Button>
                 </div>
               </div>
