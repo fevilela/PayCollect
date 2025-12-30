@@ -72,9 +72,10 @@ export async function registerRoutes(
 
   // === SEED DATA ===
   async function seed() {
-    const existingProducts = await storage.getProducts();
-    const existingUsers = await storage.getProducts(); // Check if already seeded
-    if (existingProducts.length === 0) {
+    const manager = await storage.getUserByUsername("manager");
+    const admin = await storage.getUserByUsername("admin");
+
+    if (!manager && !admin) {
       console.log("Seeding database...");
 
       // Seed Manager (system admin - for you to create companies)
@@ -95,36 +96,39 @@ export async function registerRoutes(
       });
 
       // Seed Products
-      await storage.createProduct({
-        name: "Classic Burger",
-        description: "Juicy beef patty with lettuce, tomato, and cheese.",
-        price: "25.00",
-        stock: 50,
-        category: "Food",
-        barcode: "123456789",
-        imageUrl:
-          "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
-      });
-      await storage.createProduct({
-        name: "Fries",
-        description: "Crispy golden french fries.",
-        price: "10.00",
-        stock: 100,
-        category: "Sides",
-        barcode: "987654321",
-        imageUrl:
-          "https://images.unsplash.com/photo-1630384060421-cb20d0e0649d?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
-      });
-      await storage.createProduct({
-        name: "Cola",
-        description: "Cold refreshing cola.",
-        price: "6.00",
-        stock: 200,
-        category: "Drinks",
-        barcode: "11223344",
-        imageUrl:
-          "https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
-      });
+      const products = await storage.getProducts();
+      if (products.length === 0) {
+        await storage.createProduct({
+          name: "Classic Burger",
+          description: "Juicy beef patty with lettuce, tomato, and cheese.",
+          price: "25.00",
+          stock: 50,
+          category: "Food",
+          barcode: "123456789",
+          imageUrl:
+            "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
+        });
+        await storage.createProduct({
+          name: "Fries",
+          description: "Crispy golden french fries.",
+          price: "10.00",
+          stock: 100,
+          category: "Sides",
+          barcode: "987654321",
+          imageUrl:
+            "https://images.unsplash.com/photo-1630384060421-cb20d0e0649d?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
+        });
+        await storage.createProduct({
+          name: "Cola",
+          description: "Cold refreshing cola.",
+          price: "6.00",
+          stock: 200,
+          category: "Drinks",
+          barcode: "11223344",
+          imageUrl:
+            "https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
+        });
+      }
       console.log("Seeding complete.");
     }
   }
@@ -267,6 +271,13 @@ export async function registerRoutes(
     } catch (e: any) {
       res.status(400).json({ message: e.message || "Invalid input" });
     }
+  });
+
+  app.post("/api/fiscal-settings", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    // Em um sistema real, salvaríamos isso no banco de dados para o usuário logado
+    // Por enquanto, simulamos o sucesso para permitir o fluxo do frontend
+    res.json({ message: "Configurações fiscais salvas com sucesso" });
   });
 
   app.delete(api.users.delete.path, async (req, res) => {
