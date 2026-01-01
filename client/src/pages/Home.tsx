@@ -11,7 +11,7 @@ export default function Home() {
   const [category, setCategory] = useState("all");
 
   const categories = products
-    ? ["all", ...new Set(products.map((p) => p.category))]
+    ? ["all", ...Array.from(new Set(products.map((p) => p.category)))]
     : [];
 
   const filteredProducts = products?.filter((p) => {

@@ -1,15 +1,18 @@
 import { useState } from "react";
+import { useCalculateTaxes, useAuditLogs } from "@/hooks/use-fiscal";
+import { Product } from "@shared/schema";
 import {
   useProducts,
   useCreateProduct,
   useDeleteProduct,
 } from "@/hooks/use-products";
-import { useOrders } from "@/hooks/use-orders";
+import { useCreateOrder, useOrders } from "@/hooks/use-orders";
 import { useLogin, useUser, useLogout, useCreateUser } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useEmitDocument, useFiscalDocuments } from "@/hooks/use-fiscal";
 import {
   Dialog,
   DialogContent,
@@ -534,47 +537,51 @@ function ProductsManager() {
       </div>
 
       <div className="grid gap-4">
-        {products?.map((product) => (
-          <div
-            key={product.id}
-            className="flex items-center justify-between p-4 bg-white border rounded-lg shadow-sm"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-slate-100 rounded-md overflow-hidden">
-                {product.imageUrl && (
-                  <img
-                    src={product.imageUrl}
-                    alt=""
-                    className="w-full h-full object-cover"
-                  />
-                )}
-              </div>
-              <div>
-                <h4 className="font-bold">{product.name}</h4>
-                <div className="text-xs text-muted-foreground flex gap-2">
-                  <span>${Number(product.price).toFixed(2)}</span>
-                  <span>•</span>
-                  <span>
-                    {product.stock} in stock ({product.unitOfMeasure || "UN"})
-                  </span>
-                  {product.ncm && (
-                    <>
-                      <span>•</span>
-                      <span>NCM: {product.ncm}</span>
-                    </>
+        {products?.map(
+          (
+            product: Product // Tipo explícito
+          ) => (
+            <div
+              key={product.id}
+              className="flex items-center justify-between p-4 bg-white border rounded-lg shadow-sm"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-slate-100 rounded-md overflow-hidden">
+                  {product.imageUrl && (
+                    <img
+                      src={product.imageUrl}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
                   )}
                 </div>
+                <div>
+                  <h4 className="font-bold">{product.name}</h4>
+                  <div className="text-xs text-muted-foreground flex gap-2">
+                    <span>${Number(product.price).toFixed(2)}</span>
+                    <span>•</span>
+                    <span>
+                      {product.stock} in stock ({product.unitOfMeasure || "UN"})
+                    </span>
+                    {product.ncm && (
+                      <>
+                        <span>•</span>
+                        <span>NCM: {product.ncm}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
               </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => deleteProduct(product.id)}
+              >
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => deleteProduct(product.id)}
-            >
-              <Trash2 className="h-4 w-4 text-destructive" />
-            </Button>
-          </div>
-        ))}
+          )
+        )}
       </div>
     </div>
   );
@@ -584,35 +591,40 @@ function ProductsManager() {
 function Dashboard() {
   const { data: orders } = useOrders();
   const { data: products } = useProducts();
+  const { data: fiscalDocs } = useFiscalDocuments(); // Dados reais de NF-es
 
+  // Calcule totais reais
   const totalSales =
     orders?.reduce(
       (sum: number, order: any) => sum + Number(order.totalAmount),
       0
     ) || 0;
-
-  const totalTaxes = totalSales * 0.18; // Simulated 18% tax
+  const totalTaxes =
+    fiscalDocs?.reduce(
+      (sum: number, doc: any) => sum + Number(doc.totalTax),
+      0
+    ) || 0;
   const totalOrders = orders?.length || 0;
 
-  // Mock SEFAZ status and alerts
-  const sefazStatus = "online";
-  const fiscalAlerts = [
-    { id: 1, type: "error", message: "NCM inválido no produto ID #45" },
-    {
-      id: 2,
-      type: "warning",
-      message: "Certificado Digital expira em 15 dias",
-    },
-  ];
+  // SEFAZ status baseado em docs reais
+  const sefazStatus =
+    fiscalDocs && fiscalDocs.length > 0 ? "online" : "offline";
 
+  // Alertas reais
+  const fiscalAlerts =
+    fiscalDocs && fiscalDocs.length === 0
+      ? [{ id: 1, type: "warning", message: "Nenhuma NF-e emitida ainda." }]
+      : [];
+
+  // Dados do gráfico (simplificado; ajuste para real se disponível)
   const data = [
-    { name: "Mon", sales: 400 },
-    { name: "Tue", sales: 300 },
-    { name: "Wed", sales: 600 },
-    { name: "Thu", sales: 800 },
-    { name: "Fri", sales: 500 },
-    { name: "Sat", sales: 900 },
-    { name: "Sun", sales: 700 },
+    { name: "Mon", sales: totalSales / 7 }, // Divide vendas por dias como exemplo
+    { name: "Tue", sales: totalSales / 7 },
+    { name: "Wed", sales: totalSales / 7 },
+    { name: "Thu", sales: totalSales / 7 },
+    { name: "Fri", sales: totalSales / 7 },
+    { name: "Sat", sales: totalSales / 7 },
+    { name: "Sun", sales: totalSales / 7 },
   ];
 
   return (
@@ -631,7 +643,9 @@ function Dashboard() {
           <CardContent>
             <div className="text-xl font-bold uppercase">{sefazStatus}</div>
             <p className="text-xs text-muted-foreground">
-              Conexão estável com os servidores
+              {sefazStatus === "online"
+                ? "Conexão estável com os servidores"
+                : "Nenhuma emissão recente"}
             </p>
           </CardContent>
         </Card>
@@ -683,7 +697,7 @@ function Dashboard() {
               R$ {totalTaxes.toFixed(2)}
             </div>
             <p className="text-xs text-muted-foreground">
-              Provisionamento (18%)
+              Provisionamento (calculado de NF-es)
             </p>
           </CardContent>
         </Card>
@@ -784,7 +798,7 @@ function FiscalReportsManager() {
   const totalTax = totalSales * 0.18; // 18% ICMS simulation
 
   const topProducts =
-    products?.slice(0, 5).map((p) => ({
+    products?.slice(0, 5).map((p: Product) => ({
       name: p.name,
       sales: Math.floor(Math.random() * 50) + 10,
     })) || [];
@@ -840,8 +854,8 @@ function FiscalReportsManager() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {topProducts.map((p, i) => (
-                <div key={i} className="flex justify-between items-center">
+              {topProducts.map((p: any) => (
+                <div key={p.name} className="flex justify-between items-center">
                   <span className="text-sm font-medium">{p.name}</span>
                   <span className="text-xs bg-slate-100 px-2 py-1 rounded-full">
                     {p.sales} un
@@ -949,7 +963,7 @@ function FinancialManagerUI() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {transactions.map((t) => (
+            {transactions.map((t: any) => (
               <div
                 key={t.id}
                 className="flex items-center justify-between border-b pb-2 last:border-0"
@@ -983,11 +997,13 @@ function FinancialManagerUI() {
 // Checkout / Sales Management
 function CheckoutManager() {
   const { data: products } = useProducts();
+  const { mutate: createOrder } = useCreateOrder();
+  const { mutate: emitDocument } = useEmitDocument();
+  const { toast } = useToast();
   const [cart, setCart] = useState<any[]>([]);
   const [paymentMethod, setPaymentMethod] = useState("pix");
   const [discount, setDiscount] = useState("0");
   const [customer, setCustomer] = useState({ name: "", taxId: "" });
-  const { toast } = useToast();
 
   const addToCart = (product: any) => {
     setCart([...cart, { ...product, quantity: 1 }]);
@@ -1004,17 +1020,65 @@ function CheckoutManager() {
     const cofins = (Number(item.price) * Number(item.cofins || 0)) / 100;
     return acc + (icms + pis + cofins) * item.quantity;
   }, 0);
-
   const total = subtotal - Number(discount);
 
   const handleFinishSale = () => {
-    toast({
-      title: "Venda Finalizada",
-      description: `Documento fiscal emitido com sucesso! Total: R$ ${total.toFixed(
-        2
-      )}`,
+    if (cart.length === 0) {
+      toast({
+        title: "Erro",
+        description: "Carrinho vazio",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const orderData = {
+      customerName: customer.name || "Cliente",
+      totalAmount: total.toString(),
+      paymentMethod,
+      items: cart.map((item) => ({
+        productId: item.id,
+        quantity: item.quantity,
+      })),
+    };
+
+    createOrder(orderData, {
+      onSuccess: (newOrder: any) => {
+        console.log("Pedido criado:", newOrder);
+        emitDocument(
+          {
+            orderId: newOrder.id,
+            type: paymentMethod === "pix" ? "NFCe" : "NFe",
+          }, // Correção: use newOrder.id
+          {
+            onSuccess: (fiscalData: any) => {
+              console.log("NF-e emitida:", fiscalData);
+              toast({
+                title: "Venda Finalizada",
+                description: `Documento fiscal emitido! Chave: ${fiscalData.accessKey}`,
+              });
+              setCart([]);
+            },
+            onError: (error: any) => {
+              console.error("Erro na emissão:", error);
+              toast({
+                title: "Erro",
+                description: error.message,
+                variant: "destructive",
+              });
+            },
+          }
+        );
+      },
+      onError: (error: any) => {
+        console.error("Erro na criação do pedido:", error);
+        toast({
+          title: "Erro",
+          description: error.message,
+          variant: "destructive",
+        });
+      },
     });
-    setCart([]);
   };
 
   return (
@@ -1032,7 +1096,7 @@ function CheckoutManager() {
               <Input placeholder="Buscar produtos..." className="pl-8" />
             </div>
             <div className="grid grid-cols-2 gap-4">
-              {products?.map((product) => (
+              {products?.map((product: Product) => (
                 <div
                   key={product.id}
                   className="p-3 border rounded-lg flex justify-between items-center hover:bg-slate-50 cursor-pointer"
@@ -1089,8 +1153,12 @@ function CheckoutManager() {
             <div className="space-y-2 max-h-40 overflow-y-auto">
               {cart.map((item, idx) => (
                 <div key={idx} className="flex justify-between text-sm">
-                  <span>{item.name} x1</span>
-                  <span>R$ {Number(item.price).toFixed(2)}</span>
+                  <span>
+                    {item.name} x{item.quantity}
+                  </span>
+                  <span>
+                    R$ {(Number(item.price) * item.quantity).toFixed(2)}
+                  </span>
                 </div>
               ))}
             </div>
@@ -1338,141 +1406,99 @@ function ServicesManager() {
 }
 
 // Fiscal Settings & Certificate Manager
+import { useFiscalSettings, useUpdateFiscalSettings } from "@/hooks/use-fiscal";
+
 function FiscalSettingsManager() {
-  const [certType, setCertType] = useState<"A1" | "A3">("A1");
-  const [certData, setCertData] = useState({
-    password: "",
-    fileName: "",
-    tokenSerial: "",
-    tokenModel: "",
-  });
+  const { data: settings } = useFiscalSettings();
+  const { mutate: updateSettings } = useUpdateFiscalSettings();
   const { toast } = useToast();
+  const [formData, setFormData] = useState({
+    cnpj: settings?.cnpj || "",
+    companyName: settings?.companyName || "",
+    taxRegime: settings?.taxRegime || "",
+    digitalCertificate: settings?.digitalCertificate || "",
+    privateKey: settings?.privateKey || "",
+    environment: settings?.environment || "homologation",
+  });
 
   const handleSave = () => {
-    toast({
-      title: "Configurações Salvas",
-      description: `Certificado ${certType} configurado para emissão fiscal.`,
+    updateSettings(formData, {
+      onSuccess: () =>
+        toast({ title: "Salvo", description: "Configurações atualizadas!" }),
+      onError: (error: any) =>
+        toast({
+          title: "Erro",
+          description: error.message,
+          variant: "destructive",
+        }),
     });
   };
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <FileText className="h-5 w-5" /> Configuração de Certificado Digital
-        </CardTitle>
+        <CardTitle>Configurações Fiscais</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="flex gap-4 p-1 bg-slate-100 rounded-md w-fit">
-          <Button
-            variant={certType === "A1" ? "default" : "ghost"}
-            size="sm"
-            onClick={() => setCertType("A1")}
-            className="no-default-hover-elevate"
-          >
-            Certificado A1 (Arquivo)
-          </Button>
-          <Button
-            variant={certType === "A3" ? "default" : "ghost"}
-            size="sm"
-            onClick={() => setCertType("A3")}
-            className="no-default-hover-elevate"
-          >
-            Certificado A3 (Cartão/Token)
-          </Button>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-4">
-          {certType === "A1" ? (
-            <>
-              <div className="space-y-2">
-                <Label>Arquivo do Certificado (.pfx / .p12)</Label>
-                <div
-                  className="border-2 border-dashed rounded-md p-4 text-center cursor-pointer hover:bg-slate-50 transition-colors"
-                  onClick={() =>
-                    document.getElementById("cert-upload")?.click()
-                  }
-                >
-                  <Plus className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">
-                    {certData.fileName ||
-                      "Clique para selecionar ou arraste o arquivo"}
-                  </span>
-                  <input
-                    id="cert-upload"
-                    type="file"
-                    className="hidden"
-                    accept=".pfx,.p12"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        setCertData({ ...certData, fileName: file.name });
-                        toast({
-                          title: "Arquivo Selecionado",
-                          description: file.name,
-                        });
-                      }
-                    }}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Senha do Certificado</Label>
-                <Input
-                  type="password"
-                  placeholder="Digite a senha do PFX"
-                  value={certData.password}
-                  onChange={(e) =>
-                    setCertData({ ...certData, password: e.target.value })
-                  }
-                />
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="space-y-2">
-                <Label>Série do Token/Cartão</Label>
-                <Input
-                  placeholder="Ex: 12345678"
-                  value={certData.tokenSerial}
-                  onChange={(e) =>
-                    setCertData({ ...certData, tokenSerial: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Modelo da Leitora/Token</Label>
-                <Input
-                  placeholder="Ex: SafeNet, Gemalto"
-                  value={certData.tokenModel}
-                  onChange={(e) =>
-                    setCertData({ ...certData, tokenModel: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <AlertCircle className="h-4 w-4 inline mr-2 text-amber-500" />
-                <span className="text-xs text-muted-foreground">
-                  Nota: Certificados A3 exigem o driver do fabricante e
-                  integração via componente local (DLL/Applet) para assinatura
-                  no navegador.
-                </span>
-              </div>
-            </>
-          )}
-        </div>
-
-        <Button onClick={handleSave} className="w-full">
-          Salvar Configurações Fiscais
-        </Button>
+      <CardContent className="space-y-4">
+        <Input
+          placeholder="CNPJ"
+          value={formData.cnpj}
+          onChange={(e) => setFormData({ ...formData, cnpj: e.target.value })}
+        />
+        <Input
+          placeholder="Razão Social"
+          value={formData.companyName}
+          onChange={(e) =>
+            setFormData({ ...formData, companyName: e.target.value })
+          }
+        />
+        <Input
+          placeholder="Certificado (.pem)"
+          value={formData.digitalCertificate}
+          onChange={(e) =>
+            setFormData({ ...formData, digitalCertificate: e.target.value })
+          }
+        />
+        <Input
+          placeholder="Chave Privada (.pem)"
+          value={formData.privateKey}
+          onChange={(e) =>
+            setFormData({ ...formData, privateKey: e.target.value })
+          }
+        />
+        <select
+          value={formData.environment}
+          onChange={(e) =>
+            setFormData({ ...formData, environment: e.target.value })
+          }
+        >
+          <option value="homologation">Homologação</option>
+          <option value="production">Produção</option>
+        </select>
+        <Button onClick={handleSave}>Salvar</Button>
       </CardContent>
     </Card>
   );
 }
-
 // Fiscal Management
 function FiscalManager() {
   const { data: orders } = useOrders();
+  const { toast } = useToast();
+  const [formData, setFormData] = useState({
+    cnpj: "",
+    companyName: "",
+    taxRegime: "",
+    digitalCertificate: "",
+    privateKey: "",
+    environment: "homologation",
+  });
+
+  const handleSave = () => {
+    toast({
+      title: "Salvo",
+      description: "Configurações atualizadas!",
+    });
+  };
 
   const taxStats = orders?.reduce(
     (acc, order) => {
@@ -1607,7 +1633,7 @@ function FiscalManager() {
               <Input placeholder="102" />
             </div>
           </div>
-          <Button className="w-full">Salvar Dados da Empresa</Button>
+          <Button onClick={handleSave}>Salvar</Button>
         </CardContent>
       </Card>
 

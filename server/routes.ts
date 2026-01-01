@@ -1,13 +1,20 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { api } from "@shared/routes";
+import { api } from "@shared/routes"; // Assumindo que tem contratos fiscais; adicione se necessário
+import multer from "multer";
+import fs from "fs";
+import path from "path";
 import { z } from "zod";
 import session from "express-session";
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
+import { FiscalService, calculateTaxes } from "./lib/fiscal"; // Importações fiscais
+import { db } from "./db"; // Assumindo conexão Drizzle
+import { fiscalDocuments, fiscalSettings, auditLogs } from "@shared/schema"; // Tabelas fiscais
+import { eq } from "drizzle-orm";
 
 const scryptAsync = promisify(scrypt);
 
@@ -26,6 +33,62 @@ async function comparePassword(stored: string, supplied: string) {
   return timingSafeEqual(hashedBuf, suppliedBuf);
 }
 
+import express from "express";
+import type { Request, Response } from "express";
+
+const app = express();
+const upload = multer({ dest: "./uploads" });
+
+app.put(
+  "/api/fiscal/settings",
+  upload.single("certificateFile"),
+  async (req: express.Request, res: express.Response) => {
+    try {
+      const { taxRegime, fiscalAddress, certificateType, cfop, cst } = req.body;
+
+      let digitalCertificate = "";
+      if (req.file) {
+        digitalCertificate = fs.readFileSync(path.resolve(req.file.path), {
+          encoding: "base64",
+        });
+        fs.unlinkSync(req.file.path);
+      }
+
+      const existing = await db
+        .select()
+        .from(fiscalSettings)
+        .where(eq(fiscalSettings.id, 1))
+        .limit(1);
+
+      const valuesToSave = {
+        taxRegime,
+        fiscalAddress,
+        certificateType,
+        digitalCertificate,
+        cfop,
+        cst,
+      };
+
+      if (existing.length === 0) {
+        await db.insert(fiscalSettings).values({ id: 1, ...valuesToSave });
+      } else {
+        await db
+          .update(fiscalSettings)
+          .set(valuesToSave)
+          .where(eq(fiscalSettings.id, 1));
+      }
+
+      res.json({ message: "Configurações fiscais salvas com sucesso" });
+    } catch (error) {
+      res
+        .status(500)
+        .json({
+          message: "Erro ao salvar configurações fiscais: " + (error instanceof Error ? error.message : "Erro desconhecido"),
+        });
+    }
+  }
+);
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -42,6 +105,29 @@ export async function registerRoutes(
 
   app.use(passport.initialize());
   app.use(passport.session());
+
+  app.put("/api/fiscal/settings", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const input = z
+        .object({
+          cnpj: z.string().optional(),
+          companyName: z.string().optional(),
+          taxRegime: z.string().optional(),
+          digitalCertificate: z.string().optional(),
+          privateKey: z.string().optional(),
+          environment: z.enum(["homologation", "production"]).optional(),
+        })
+        .parse(req.body);
+      await db
+        .update(fiscalSettings)
+        .set(input)
+        .where(eq(fiscalSettings.id, 1));
+      res.json({ message: "Atualizado" });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
 
   passport.use(
     new LocalStrategy(async (username, password, done) => {
@@ -287,6 +373,101 @@ export async function registerRoutes(
     const id = Number(req.params.id);
     await storage.deleteUser(id);
     res.sendStatus(200);
+  });
+
+  // === NOVAS ROTAS FISCAIS ===
+
+  // -- Calcular Impostos para um Pedido --
+  app.post("/api/fiscal/calculate-taxes", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const { orderId } = z.object({ orderId: z.number() }).parse(req.body);
+      const taxes = await calculateTaxes(orderId);
+      res.json({
+        taxes,
+        totalTax: taxes.reduce((sum, t) => sum + t.totalTax, 0),
+      });
+    } catch (e: any) {
+      res
+        .status(400)
+        .json({ message: e.message || "Erro ao calcular impostos" });
+    }
+  });
+
+  // -- Emitir Documento Fiscal --
+  app.post("/api/fiscal/emit-document", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const { orderId, type } = z
+        .object({ orderId: z.number(), type: z.enum(["NFCe", "NFe", "NFSe"]) })
+        .parse(req.body);
+      const result = await FiscalService.emitDocument(orderId, type);
+      res.json(result);
+    } catch (e: any) {
+      res
+        .status(400)
+        .json({ message: e.message || "Erro ao emitir documento" });
+    }
+  });
+
+  // -- Listar Documentos Fiscais --
+  app.get("/api/fiscal/documents", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const documents = await db.select().from(fiscalDocuments);
+      res.json(documents);
+    } catch (e: any) {
+      res.status(500).json({ message: "Erro ao listar documentos" });
+    }
+  });
+
+  // -- Obter Configurações Fiscais --
+  app.get("/api/fiscal/settings", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const settings = await db.select().from(fiscalSettings).limit(1);
+      res.json(settings[0] || {});
+    } catch (e: any) {
+      res.status(500).json({ message: "Erro ao obter configurações" });
+    }
+  });
+
+  // -- Atualizar Configurações Fiscais --
+  app.put("/api/fiscal/settings", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const input = z
+        .object({
+          cnpj: z.string().optional(),
+          companyName: z.string().optional(),
+          taxRegime: z.string().optional(),
+          digitalCertificate: z.string().optional(),
+          environment: z.enum(["homologation", "production"]).optional(),
+        })
+        .parse(req.body);
+      await db
+        .update(fiscalSettings)
+        .set(input)
+        .where(eq(fiscalSettings.id, 1)); // Assumindo ID fixo; ajuste para multi-empresa
+      res.json({ message: "Configurações atualizadas" });
+    } catch (e: any) {
+      res
+        .status(400)
+        .json({ message: e.message || "Erro ao atualizar configurações" });
+    }
+  });
+
+  // -- Listar Logs de Auditoria (Apenas Manager) --
+  app.get("/api/fiscal/audit-logs", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const currentUser = req.user as any;
+    if (currentUser.role !== "manager") return res.sendStatus(403);
+    try {
+      const logs = await db.select().from(auditLogs);
+      res.json(logs);
+    } catch (e: any) {
+      res.status(500).json({ message: "Erro ao listar logs" });
+    }
   });
 
   return httpServer;

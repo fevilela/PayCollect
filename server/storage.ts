@@ -14,7 +14,21 @@ import {
   type CreateOrderRequest,
   type UpdateOrderRequest,
   type OrderResponse,
+  fiscalDocuments,
+  fiscalSettings,
+  taxCalculations,
+  auditLogs,
 } from "@shared/schema";
+
+// Type aliases for fiscal tables
+type FiscalDocument = typeof fiscalDocuments.$inferSelect;
+type InsertFiscalDocument = typeof fiscalDocuments.$inferInsert;
+type FiscalSettings = typeof fiscalSettings.$inferSelect;
+type InsertFiscalSettings = typeof fiscalSettings.$inferInsert;
+type TaxCalculation = typeof taxCalculations.$inferSelect;
+type InsertTaxCalculation = typeof taxCalculations.$inferInsert;
+type AuditLog = typeof auditLogs.$inferSelect;
+type InsertAuditLog = typeof auditLogs.$inferInsert;
 import { eq, desc } from "drizzle-orm";
 
 export interface IStorage {
@@ -39,6 +53,26 @@ export interface IStorage {
   getOrderByCode(code: string): Promise<OrderResponse | undefined>;
   createOrder(order: CreateOrderRequest): Promise<OrderResponse>;
   updateOrderStatus(id: number, status: string): Promise<OrderResponse>;
+
+  // Adicionados para fiscal
+  // Fiscal Documents
+  getFiscalDocuments(): Promise<FiscalDocument[]>;
+  getFiscalDocument(id: number): Promise<FiscalDocument | undefined>;
+  createFiscalDocument(doc: InsertFiscalDocument): Promise<FiscalDocument>;
+
+  // Fiscal Settings
+  getFiscalSettings(): Promise<FiscalSettings | undefined>;
+  updateFiscalSettings(
+    settings: Partial<InsertFiscalSettings>
+  ): Promise<FiscalSettings>;
+
+  // Tax Calculations
+  getTaxCalculations(orderId: number): Promise<TaxCalculation[]>;
+  createTaxCalculation(calc: InsertTaxCalculation): Promise<TaxCalculation>;
+
+  // Audit Logs
+  getAuditLogs(): Promise<AuditLog[]>;
+  createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -247,6 +281,71 @@ export class DatabaseStorage implements IStorage {
 
     // Refetch full object
     return this.getOrder(id) as Promise<OrderResponse>;
+  }
+
+  // === FISCAL DOCUMENTS ===
+  async getFiscalDocuments(): Promise<FiscalDocument[]> {
+    return await db
+      .select()
+      .from(fiscalDocuments)
+      .orderBy(desc(fiscalDocuments.issuedAt));
+  }
+
+  async getFiscalDocument(id: number): Promise<FiscalDocument | undefined> {
+    const [doc] = await db
+      .select()
+      .from(fiscalDocuments)
+      .where(eq(fiscalDocuments.id, id));
+    return doc;
+  }
+
+  async createFiscalDocument(
+    doc: InsertFiscalDocument
+  ): Promise<FiscalDocument> {
+    const [newDoc] = await db.insert(fiscalDocuments).values(doc).returning();
+    return newDoc;
+  }
+
+  // === FISCAL SETTINGS ===
+  async getFiscalSettings(): Promise<FiscalSettings | undefined> {
+    const [settings] = await db.select().from(fiscalSettings).limit(1);
+    return settings;
+  }
+
+  async updateFiscalSettings(
+    settings: Partial<InsertFiscalSettings>
+  ): Promise<FiscalSettings> {
+    const [updated] = await db
+      .update(fiscalSettings)
+      .set(settings)
+      .where(eq(fiscalSettings.id, 1))
+      .returning();
+    return updated;
+  }
+
+  // === TAX CALCULATIONS ===
+  async getTaxCalculations(orderId: number): Promise<TaxCalculation[]> {
+    return await db
+      .select()
+      .from(taxCalculations)
+      .where(eq(taxCalculations.orderItemId, orderId)); // Ajuste se precisar por orderId
+  }
+
+  async createTaxCalculation(
+    calc: InsertTaxCalculation
+  ): Promise<TaxCalculation> {
+    const [newCalc] = await db.insert(taxCalculations).values(calc).returning();
+    return newCalc;
+  }
+
+  // === AUDIT LOGS ===
+  async getAuditLogs(): Promise<AuditLog[]> {
+    return await db.select().from(auditLogs).orderBy(desc(auditLogs.timestamp));
+  }
+
+  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
+    const [newLog] = await db.insert(auditLogs).values(log).returning();
+    return newLog;
   }
 }
 
