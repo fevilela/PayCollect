@@ -12,6 +12,7 @@ import { Strategy as LocalStrategy } from "passport-local";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { FiscalService, calculateTaxes } from "./lib/fiscal"; // Importações fiscais
+import { DANFEGenerator } from "./lib/danfe";
 import { db } from "./db"; // Assumindo conexão Drizzle
 import { fiscalDocuments, fiscalSettings, auditLogs } from "@shared/schema"; // Tabelas fiscais
 import { eq } from "drizzle-orm";
@@ -467,6 +468,56 @@ export async function registerRoutes(
       res.json(logs);
     } catch (e: any) {
       res.status(500).json({ message: "Erro ao listar logs" });
+    }
+  });
+
+  // -- Gerar DANFE NFC-e (PDF) --
+  app.get("/api/fiscal/danfe/:documentId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const documentId = Number(req.params.documentId);
+      const pdfBuffer = await DANFEGenerator.generateNFCe(documentId);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename=danfe-${documentId}.pdf`);
+      res.send(pdfBuffer);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Erro ao gerar DANFE" });
+    }
+  });
+
+  // -- Gerar DANFE NFC-e Simplificado (HTML) --
+  app.get("/api/fiscal/danfe-html/:documentId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const documentId = Number(req.params.documentId);
+      const html = await DANFEGenerator.generateDANFESimplified(documentId);
+      res.setHeader("Content-Type", "text/html");
+      res.send(html);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Erro ao gerar DANFE" });
+    }
+  });
+
+  // -- Emitir NFC-e em Modo Offline --
+  app.post("/api/fiscal/emit-offline", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const { orderId } = z.object({ orderId: z.number() }).parse(req.body);
+      const result = await FiscalService.emitirNFCeOffline(orderId);
+      res.json(result);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message || "Erro ao emitir offline" });
+    }
+  });
+
+  // -- Transmitir Notas Offline --
+  app.post("/api/fiscal/transmit-offline", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const results = await FiscalService.transmitirNotasOffline();
+      res.json(results);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Erro ao transmitir notas" });
     }
   });
 

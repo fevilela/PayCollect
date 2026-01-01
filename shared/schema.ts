@@ -43,6 +43,7 @@ export const products = pgTable("products", {
   category: text("category").notNull(),
   imageUrl: text("image_url"),
   ncm: text("ncm"), // Adicionado validação customizada abaixo
+  cest: text("cest"), // Código Especificador da Substituição Tributária
   cfop: text("cfop"),
   cst: text("cst"), // CST or CSOSN
   icms: decimal("icms", { precision: 5, scale: 2 }),
@@ -50,7 +51,10 @@ export const products = pgTable("products", {
   cofins: decimal("cofins", { precision: 5, scale: 2 }),
   ipi: decimal("ipi", { precision: 5, scale: 2 }),
   icmsSt: decimal("icms_st", { precision: 5, scale: 2 }),
+  ibs: decimal("ibs", { precision: 5, scale: 2 }), // Imposto sobre Bens e Serviços - Reforma 2026
+  cbs: decimal("cbs", { precision: 5, scale: 2 }), // Contribuição sobre Bens e Serviços - Reforma 2026
   unitOfMeasure: text("unit_of_measure"), // e.g., UN, KG, LT
+  weightable: boolean("weightable").default(false), // Produto vendido por peso
 });
 
 export const fiscalSettings = pgTable("fiscalSettings", {
