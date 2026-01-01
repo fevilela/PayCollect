@@ -43,6 +43,7 @@ export const products = pgTable("products", {
   category: text("category").notNull(),
   imageUrl: text("image_url"),
   ncm: text("ncm"), // Adicionado validação customizada abaixo
+  cest: text("cest"), // Código CEST (Reforma Tributária)
   cfop: text("cfop"),
   cst: text("cst"), // CST or CSOSN
   icms: decimal("icms", { precision: 5, scale: 2 }),
@@ -50,7 +51,10 @@ export const products = pgTable("products", {
   cofins: decimal("cofins", { precision: 5, scale: 2 }),
   ipi: decimal("ipi", { precision: 5, scale: 2 }),
   icmsSt: decimal("icms_st", { precision: 5, scale: 2 }),
+  ibs: decimal("ibs", { precision: 5, scale: 2 }), // Imposto sobre Bens e Serviços (2026)
+  cbs: decimal("cbs", { precision: 5, scale: 2 }), // Contribuição sobre Bens e Serviços (2026)
   unitOfMeasure: text("unit_of_measure"), // e.g., UN, KG, LT
+  weighable: boolean("weighable").default(false), // Produto vendido por peso (balança)
 });
 
 export const fiscalSettings = pgTable("fiscalSettings", {
@@ -61,14 +65,23 @@ export const fiscalSettings = pgTable("fiscalSettings", {
   stateRegistration: text("state_registration"),
   municipalRegistration: text("municipal_registration"),
   taxRegime: text("tax_regime").notNull(), // Simples Nacional, Lucro Presumido, Lucro Real
-  privateKey: text(),
+  privateKey: text("private_key"),
+  certificatePassword: text("certificate_password"), // Senha do certificado A1
   mainCnae: text("main_cnae"),
-  certificateType: text("certificate_type"), // Novo campo
-  fiscalAddress: text("fiscal_address"), // Novo campo
-  digitalCertificate: text("digital_certificate"), // Simulation (A1/A3)
+  certificateType: text("certificate_type"), // A1 ou A3
+  fiscalAddress: text("fiscal_address"),
+  city: text("city"),
+  state: text("state"), // UF
+  zipCode: text("zip_code"),
+  phone: text("phone"),
+  digitalCertificate: text("digital_certificate"), // Certificado A1 em base64
   environment: text("environment").default("homologation"), // homologation / production
   defaultCst: text("default_cst"),
   defaultCfop: text("default_cfop"),
+  nfceSeriesNumber: integer("nfce_series_number").default(1), // Série da NFC-e
+  lastNfceNumber: integer("last_nfce_number").default(0), // Último número de NFC-e emitido
+  ibsEnabled: boolean("ibs_enabled").default(false), // Habilitar IBS/CBS (Reforma 2026)
+  cbsEnabled: boolean("cbs_enabled").default(false),
 });
 
 export const salesTaxSummary = pgTable("sales_tax_summary", {
@@ -112,6 +125,56 @@ export const auditLogs = pgTable("audit_logs", {
   timestamp: timestamp("timestamp").defaultNow().notNull(),
 });
 
+// Tabela: Fila de contingência offline para NFC-e
+export const nfceQueue = pgTable("nfce_queue", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").references(() => orders.id).notNull(),
+  xmlContent: text("xml_content").notNull(),
+  status: text("status").default("pending"), // 'pending', 'transmitted', 'error'
+  attempts: integer("attempts").default(0),
+  lastAttempt: timestamp("last_attempt"),
+  createdAt: timestamp("created_at").defaultNow(),
+  transmittedAt: timestamp("transmitted_at"),
+});
+
+// Tabela: Armazenamento de XMLs (obrigatório por 5 anos)
+export const xmlStorage = pgTable("xml_storage", {
+  id: serial("id").primaryKey(),
+  fiscalDocumentId: integer("fiscal_document_id").references(() => fiscalDocuments.id).notNull(),
+  xmlContent: text("xml_content").notNull(),
+  xmlType: text("xml_type").notNull(), // 'nfce', 'nfe', 'nfse', 'cancellation'
+  accessKey: text("access_key").notNull(),
+  storedAt: timestamp("stored_at").defaultNow(),
+  expiresAt: timestamp("expires_at"), // Data de expiração (5 anos)
+});
+
+// Tabela: Transações TEF (integração com maquininhas)
+export const tefTransactions = pgTable("tef_transactions", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").references(() => orders.id).notNull(),
+  nsu: text("nsu"), // Número Sequencial Único
+  authorizationCode: text("authorization_code"),
+  cardBrand: text("card_brand"), // Visa, Mastercard, etc.
+  cardNumber: text("card_number"), // Últimos 4 dígitos
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  installments: integer("installments").default(1),
+  status: text("status").default("pending"), // 'pending', 'approved', 'denied', 'cancelled'
+  responseCode: text("response_code"),
+  responseMessage: text("response_message"),
+  transactionDate: timestamp("transaction_date").defaultNow(),
+});
+
+// Tabela: Registros SPED Fiscal
+export const spedRecords = pgTable("sped_records", {
+  id: serial("id").primaryKey(),
+  referenceMonth: integer("reference_month").notNull(), // Mês de referência (1-12)
+  referenceYear: integer("reference_year").notNull(), // Ano de referência
+  recordType: text("record_type").notNull(), // '0000', 'C100', 'C170', etc.
+  recordContent: text("record_content").notNull(), // Conteúdo do registro
+  fiscalDocumentId: integer("fiscal_document_id").references(() => fiscalDocuments.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const services = pgTable("services", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -142,14 +205,21 @@ export const fiscalDocuments = pgTable("fiscal_documents", {
   type: text("type").notNull(), // 'NFCe', 'NFe', 'NFSe'
   number: integer("number").notNull(),
   series: integer("series").notNull(),
-  status: text("status").default("pending"), // 'pending', 'authorized', 'cancelled', 'transmitted'
+  status: text("status").default("pending"), // 'pending', 'authorized', 'cancelled', 'transmitted', 'rejected'
   xmlContent: text("xml_content"),
-  accessKey: text("access_key"),
-  qrCode: text("qr_code"), // Adicionado: Para NFC-e (link para consulta)
-  transmissionStatus: text("transmission_status"), // Adicionado: 'success', 'error', 'retry'
+  xmlSigned: text("xml_signed"), // XML assinado digitalmente
+  accessKey: text("access_key"), // Chave de acesso (44 dígitos)
+  authorizationProtocol: text("authorization_protocol"), // Protocolo de autorização SEFAZ
+  qrCode: text("qr_code"), // URL do QR Code para NFC-e
+  qrCodeData: text("qr_code_data"), // Dados do QR Code
+  transmissionStatus: text("transmission_status"), // 'success', 'error', 'retry', 'offline'
+  errorMessage: text("error_message"), // Mensagem de erro da SEFAZ
   totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
   totalTax: decimal("total_tax", { precision: 10, scale: 2 }).notNull(),
   issuedAt: timestamp("issued_at").defaultNow(),
+  authorizedAt: timestamp("authorized_at"), // Data de autorização pela SEFAZ
+  cancelledAt: timestamp("cancelled_at"), // Data de cancelamento
+  contingencyMode: boolean("contingency_mode").default(false), // Emitido em contingência offline
 });
 
 export const financialTransactions = pgTable("financial_transactions", {
@@ -221,6 +291,34 @@ export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
   user: one(users, {
     fields: [auditLogs.userId],
     references: [users.id],
+  }),
+}));
+
+export const nfceQueueRelations = relations(nfceQueue, ({ one }) => ({
+  order: one(orders, {
+    fields: [nfceQueue.orderId],
+    references: [orders.id],
+  }),
+}));
+
+export const xmlStorageRelations = relations(xmlStorage, ({ one }) => ({
+  fiscalDocument: one(fiscalDocuments, {
+    fields: [xmlStorage.fiscalDocumentId],
+    references: [fiscalDocuments.id],
+  }),
+}));
+
+export const tefTransactionsRelations = relations(tefTransactions, ({ one }) => ({
+  order: one(orders, {
+    fields: [tefTransactions.orderId],
+    references: [orders.id],
+  }),
+}));
+
+export const spedRecordsRelations = relations(spedRecords, ({ one }) => ({
+  fiscalDocument: one(fiscalDocuments, {
+    fields: [spedRecords.fiscalDocumentId],
+    references: [fiscalDocuments.id],
   }),
 }));
 
